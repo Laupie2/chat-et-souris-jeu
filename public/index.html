@@ -30,6 +30,7 @@
 
     <!-- ZONE DE JEU (CARTE) -->
     <div id="UI-statut">Statut : Connexion...</div>
+    <button id="bouton-touche" onclick="jeSuisTouche()" style="display:none; position:absolute; bottom:20px; left:50%; transform:translateX(-50%); z-index:1000; background:#dc3545;">J'ai été touché(e) !</button>
     <div id="map"></div>
 
     <!-- SCRIPTS -->
@@ -38,6 +39,12 @@
     <script>
         const socket = io();
         let map, marqueurs = {}, cercleBuffer = null, centreInitialFait = false;
+
+        function jeSuisTouche() {
+            if (confirm("Tu confirmes t'être fait toucher à l'instant ?")) {
+                socket.emit('je_suis_touche');
+            }
+        }
 
         function rejoindrePartie() {
             const blase = document.getElementById('blase').value;
@@ -84,8 +91,15 @@
 
         // 3. Réceptionner les positions filtrées (par rôle, côté serveur) et dessiner le Buffer
         socket.on('maj_carte', (data) => {
-            // Mettre à jour le texte du statut (Immunisé, En jeu, etc.)
-            document.getElementById('UI-statut').innerText = `Statut : ${data.monStatut}`;
+            // Mettre à jour le texte du statut (Immunisé, En jeu, etc.), + petit indicateur métro
+            const indicMetro = data.presDuMetro ? ' · 🚇 près d\'un métro' : '';
+            document.getElementById('UI-statut').innerText = `Statut : ${data.monStatut}${indicMetro}`;
+
+            // Le bouton "touché" n'a de sens que pour une souris qui n'est pas déjà en cooldown
+            // (le rôle peut changer en cours de partie, d'où la vérification à chaque maj_carte)
+            const boutonTouche = document.getElementById('bouton-touche');
+            boutonTouche.style.display =
+                (data.monRole === 'souris' && !data.monStatut.startsWith('cooldown')) ? 'block' : 'none';
 
             // Dessiner ou mettre à jour le cercle de la Zone Tampon (Buffer) de 10 min
             // (arrivera à l'étape 5 - le serveur n'envoie pas encore zoneAttente, ce bloc ne fait donc rien pour l'instant)
