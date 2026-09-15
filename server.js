@@ -8,11 +8,6 @@ const io = new Server(server);
 
 app.use(express.static('public'));
 
-// Rayon utilisé pour savoir QUELS chats étaient dans le coin au moment d'un "touché"
-// (ce n'est plus ça qui déclenche le contact - juste ce qui détermine qui doit
-// aussi attendre le cooldown en plus de la souris).
-const DISTANCE_ATTRIBUTION_METRES = 15;
-
 // Cooldown après un contact : 10 min si près d'un métro ou dans la première couronne, 15 min sinon.
 const COOLDOWN_COURT_MS = 10 * 60 * 1000;
 const COOLDOWN_LONG_MS = 15 * 60 * 1000;
@@ -115,9 +110,9 @@ function purgerCooldownExpire(joueur) {
   if (joueur.finCooldown && Date.now() >= joueur.finCooldown) {
     joueur.statut = 'en jeu';
     joueur.finCooldown = null;
-    if (joueur.swapRoleApresCooldown) {
-      joueur.role = 'chat';
-      joueur.swapRoleApresCooldown = false;
+    if (joueur.nouveauRoleApresCooldown) {
+      joueur.role = joueur.nouveauRoleApresCooldown;
+      joueur.nouveauRoleApresCooldown = null;
     }
   }
 }
@@ -163,7 +158,7 @@ io.on('connection', (socket) => {
       lng: null,
       statut: 'en jeu',
       finCooldown: null,
-      swapRoleApresCooldown: false,
+      nouveauRoleApresCooldown: null,
     };
     diffuserCarte();
   });
@@ -176,28 +171,17 @@ io.on('connection', (socket) => {
     diffuserCarte();
   });
 
-  // La souris elle-même signale qu'elle vient de se faire toucher en vrai.
-  socket.on('je_suis_touche', () => {
-    const souris = joueurs[socket.id];
-    if (!souris || souris.role !== 'souris' || souris.statut === 'cooldown' || souris.lat == null) return;
+  // Chaque joueur signale lui-même son propre contact (souris touchée, ou chat qui vient
+  // d'attraper quelqu'un). Le clic n'affecte QUE la personne qui clique - pour un échange
+  // complet, il faut que les deux personnes impliquées cliquent chacune leur bouton.
+  socket.on('signaler_contact', () => {
+    const moi = joueurs[socket.id];
+    if (!moi || moi.statut === 'cooldown' || moi.lat == null) return;
 
-    const chatsProches = Object.values(joueurs).filter(
-      (j) => j.role === 'chat' && j.lat != null && j.statut !== 'cooldown' &&
-        distanceMetres(souris.lat, souris.lng, j.lat, j.lng) <= DISTANCE_ATTRIBUTION_METRES
-    );
-
-    const duree = dureeCooldown(souris.lat, souris.lng);
-    const fin = Date.now() + duree;
-
-    souris.statut = 'cooldown';
-    souris.finCooldown = fin;
-    souris.swapRoleApresCooldown = true; // redevient visible en tant que CHAT à la fin du cooldown
-
-    chatsProches.forEach((c) => {
-      c.statut = 'cooldown';
-      c.finCooldown = fin;
-      // pas de swap de rôle pour les chats, juste le même temps d'attente
-    });
+    const duree = dureeCooldown(moi.lat, moi.lng);
+    moi.statut = 'cooldown';
+    moi.finCooldown = Date.now() + duree;
+    moi.nouveauRoleApresCooldown = moi.role === 'souris' ? 'chat' : 'souris';
 
     diffuserCarte();
   });
